@@ -1,0 +1,180 @@
+blueprint:
+  name: Push Button Dimmer – Signify RDM001
+  description: >
+    Signify Netherlands B.V. RDM001 via ZHA: short press = toggle, long press = dim
+    (with boundary correction while holding), long release = flip direction for next time.
+  domain: automation
+
+  input:
+    remote:
+      name: Signify RDM001 push button
+      selector:
+        device:
+          integration: zha
+          manufacturer: "Signify Netherlands B.V."
+          model: "RDM001"
+
+    light:
+      name: Light to dim
+      selector:
+        entity:
+          domain: light
+
+    direction_helper:
+      name: Helper for dim direction (input_number -1..1)
+      description: Create an input_number beforehand with min=-1, max=1, step=1 (1=brighter, -1=dimmer).
+      selector:
+        entity:
+          domain: input_number
+
+    step_size:
+      name: Dim step size (0–255)
+      default: 20
+      selector:
+        number:
+          min: 5
+          max: 40
+          step: 1
+
+    transition:
+      name: Transition (seconds)
+      default: 0.2
+      selector:
+        number:
+          min: 0
+          max: 2
+          step: 0.05
+
+    delay_seconds:
+      name: Interval between dim steps (seconds)
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.01
+
+    max_brightness_threshold:
+      name: Threshold for "almost maximum" (0–255)
+      description: From this brightness onward, the direction is switched to dimmer during holding.
+      default: 250
+      selector:
+        number:
+          min: 1
+          max: 255
+          step: 1
+
+# Triggers — identical to your working automation (with subtype: turn_on)
+trigger:
+  - platform: device
+    device_id: !input remote
+    domain: zha
+    type: remote_button_short_press
+    subtype: turn_on
+    id: short_press
+
+  - platform: device
+    device_id: !input remote
+    domain: zha
+    type: remote_button_long_press
+    subtype: turn_on
+    id: hold_start
+
+  - platform: device
+    device_id: !input remote
+    domain: zha
+    type: remote_button_long_release
+    subtype: turn_on
+    id: hold_release
+
+# Actions
+action:
+  # Convert !input values into variables for template use
+  - variables:
+      lamp: !input light
+      dir_helper: !input direction_helper
+      step: !input step_size
+      trans: !input transition
+      delay_t: !input delay_seconds
+      max_t: !input max_brightness_threshold
+
+  - choose:
+
+      # 1) Short press → toggle
+      - conditions:
+          - condition: trigger
+            id: short_press
+        sequence:
+          - service: light.toggle
+            target:
+              entity_id: "{{ lamp }}"
+            data:
+              transition: "{{ trans }}"
+
+      # 2) Hold start → dim loop (with boundary correction while holding)
+      - conditions:
+          - condition: trigger
+            id: hold_start
+        sequence:
+          # Read current direction (1=brighter, -1=dimmer)
+          - variables:
+              direction: "{{ states(dir_helper) | int }}"
+
+          - repeat:
+              until:
+                - condition: trigger
+                  id: hold_release
+              sequence:
+
+                # === Boundary checks while holding (exactly like your automation) ===
+                - choose:
+                    # If direction = dimmer but lamp is off → set direction to brighter
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ direction == -1 and is_state(lamp, 'off') }}"
+                      sequence:
+                        - service: input_number.set_value
+                          target:
+                            entity_id: "{{ dir_helper }}"
+                          data:
+                            value: 1
+                        - variables:
+                            direction: 1
+
+                    # If direction = brighter but brightness ≥ threshold → set direction to dimmer
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ direction == 1 and (state_attr(lamp, 'brightness') | int(0)) >= max_t }}"
+                      sequence:
+                        - service: input_number.set_value
+                          target:
+                            entity_id: "{{ dir_helper }}"
+                          data:
+                            value: -1
+                        - variables:
+                            direction: -1
+
+                # Perform dim step in current direction
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ lamp }}"
+                  data:
+                    brightness_step: "{{ step * direction }}"
+                    transition: "{{ trans }}"
+
+                # Wait a bit (0 = no delay)
+                - delay:
+                    seconds: "{{ delay_t }}"
+
+      # 3) Hold release → flip direction for next hold
+      - conditions:
+          - condition: trigger
+            id: hold_release
+        sequence:
+          - service: input_number.set_value
+            target:
+              entity_id: "{{ dir_helper }}"
+            data:
+              value: "{{ (states(dir_helper) | int) * -1 }}"
+
+mode: restart
