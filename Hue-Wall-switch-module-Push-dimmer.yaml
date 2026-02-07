@@ -1,5 +1,5 @@
 blueprint:
-  name: Push Button Dimmer – Signify RDM001
+  name:  Hue Wall switch module (Signify RDM001) - Push Button Dimmer
   description: >
     Signify Netherlands B.V. RDM001 via ZHA: short press = toggle, long press = dim
     (with boundary correction while holding), long release = flip direction for next time.
@@ -176,5 +176,6 @@ action:
               entity_id: "{{ dir_helper }}"
             data:
               value: "{{ (states(dir_helper) | int) * -1 }}"
+
 
 mode: restart
