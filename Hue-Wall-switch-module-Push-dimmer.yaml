@@ -1,18 +1,22 @@
 blueprint:
-  name:  Hue Wall switch module Signify RDM001 - Push Button Dimmer
+  name: Hue Wall switch module Signify RDM001/RDM004 - Push Button Dimmer
   description: >
-    Signify Netherlands B.V. RDM001 via ZHA: short press = toggle, long press = dim
+    Signify Netherlands B.V. RDM001/RDM004 via ZHA: short press = toggle, long press = dim
     (with boundary correction while holding), long release = flip direction for next time.
   domain: automation
 
   input:
     remote:
-      name: Signify RDM001 push button
+      name: Signify RDM001/RDM004 push button
       selector:
         device:
-          integration: zha
-          manufacturer: "Signify Netherlands B.V."
-          model: "RDM001"
+          filter:
+            - integration: zha
+              manufacturer: "Signify Netherlands B.V."
+              model: "RDM001"
+            - integration: zha
+              manufacturer: "Signify Netherlands B.V."
+              model: "RDM004"
 
     light:
       name: Light to dim
@@ -126,7 +130,7 @@ action:
                   id: hold_release
               sequence:
 
-                # === Boundary checks while holding (exactly like your automation) ===
+                # === Boundary checks while holding ===
                 - choose:
                     # If direction = dimmer but lamp is off → set direction to brighter
                     - conditions:
@@ -177,6 +181,4 @@ action:
             data:
               value: "{{ (states(dir_helper) | int) * -1 }}"
 
-
 mode: restart
-
